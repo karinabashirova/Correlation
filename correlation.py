@@ -8,7 +8,7 @@ import argparse
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import copy
-
+import matplotlib.pyplot as plt
 warnings.filterwarnings("ignore")
 pd.options.mode.chained_assignment = None
 
@@ -27,18 +27,31 @@ class Volatility:
 
     def sigma_from_price(self, C, strike, expiry, r, error, S):
         sigma = 1.
+        sigma_old = 1.
         dv = error + 1.
         count = 0
-        while count <= 100:
+        price_error_old, price_error_new = 20000, 10000
+        while count <= 100 and abs(price_error_new) < abs(price_error_old):
             # while abs(dv) > error:
+            price_error_old = price_error_new
+            sigma_old = sigma
             count += 1
             d1 = (log(S / strike) + (r + 0.5 * sigma ** 2) * expiry) / (sigma * sqrt(expiry))
             d2 = d1 - sigma * sqrt(expiry)
             price = self.C_(d1, d2, strike, r, expiry, S)
             vega = self.Vega(S, d1, expiry)
-            price_error = price - C
-            dv = price_error / vega
+            price_error_new = price - C
+            dv = price_error_new / vega
             sigma = (sigma - dv)
+            if abs(sigma) > 10.0:
+                sigma = sigma_old
+                # print(sigma, price_error_new, dv, vega, d1, d2)
+                break
+            # if np.isnan(sigma):
+            #     print('d1', d1, 'd2', d2)
+            #     print(S, strike, expiry, dv, count, price_error_new)
+            #     break
+        # print('sigma', sigma)
         return sigma
 
     # def sigma_from_price(self, C, E, expiry, r, error, S):
@@ -170,10 +183,11 @@ class Reader:
                 for j in range(len(self.price[self.option_type][k][i])):
                     if not np.isnan(self.price[self.option_type][k][i][j]):
                         self.v[k][i][j] = vol.sigma_from_price(self.price[self.option_type][k][i][j], self.strikes[k][i],
-                                                          self.time[k][j], 0., 0.001, self.forward[k][i][j])
-                                                                                          # self.spot[k][j])
+                                                          self.time[k][j], 0., 0.001, self.forward_average[k][j])
+                                                                                         # self.spot[k][j])
                     else:
                         self.v[k][i][j] = np.nan
+            print('v[k]', np.isnan(self.v[k]).sum())
         print()
 
     def count_forward_price(self, r, D):
@@ -184,10 +198,9 @@ class Reader:
                 for j in range(len(self.price[self.option_type][k][i])):
                     if not np.isnan(self.price[self.option_type][k][i][j]):
                         self.forward[k][i][j] = \
-                            (-self.price['call'][k][i][j] + self.price['put'][k][i][j] + self.strikes[k][i])
-                                # + self.spot[k][j])
+                            (-self.price['call'][k][i][j] + self.price['put'][k][i][j]  # + self.strikes[k][i])
+                                + self.spot[k][j])
                                                                             # / (self.strikes[k][i]) - 1
-
                     else:
                         self.forward[k][i][j] = np.nan
 
@@ -209,19 +222,36 @@ class Reader:
 
             for i in range(len(self.price[self.option_type][k])):
                 fig.add_trace(
-                    go.Scatter(x=self.time[k], y=self.forward[k][i],# / self.strikes[k][i] - 1, #  (self.spot[k])
+                    go.Scatter(x=self.time[k], y=self.forward[k][i],  # / self.strikes[k][i] - 1, #  (self.spot[k])
                                mode="markers", marker=dict(size=4), name=self.strikes[k][i]))
             fig.add_trace(
-                go.Scatter(x=self.time[k], y=self.forward_average[k], #/ self.strikes[k][i] - 1,  # (self.spot[k])
-                           mode="markers+lines", marker=dict(size=10), name='average'))
+                go.Scatter(x=self.time[k], y=self.forward_average[k],  # / self.strikes[k][i] - 1,  # (self.spot[k])
+                           mode="markers+lines", marker=dict(size=10), name='forward average'))
             fig.add_trace(
-                go.Scatter(x=self.time[k], y=self.spot[k], #/ self.strikes[k][i] - 1,  # (self.spot[k])
+                go.Scatter(x=self.time[k], y=self.spot[k],  # / self.strikes[k][i] - 1,  # (self.spot[k])
                            mode="markers+lines", marker=dict(size=10), name='spot'))
 
             fig.update_xaxes(title_text="Time to expiration")
             fig.update_yaxes(title_text="Forward")
 
             fig.update_layout(title_text="Forward for expiration time " + str(self.expiry_date[k]) +
+                                         ' for ' + str(self.price_type))
+
+            fig.show()
+
+    def plot_forward_rate(self):
+        for k in range(len(self.price[self.option_type])):
+            fig = go.Figure()
+
+            for i in range(len(self.price[self.option_type][k])):
+                fig.add_trace(
+                    go.Scatter(x=self.time[k], y=self.forward[k][i] / self.strikes[k][i] - 1, #  (self.spot[k])
+                               mode="lines+markers", marker=dict(size=4), name=self.strikes[k][i]))
+
+            fig.update_xaxes(title_text="Time to expiration")
+            fig.update_yaxes(title_text="Forward rate")
+
+            fig.update_layout(title_text="Forward rate for expiration time " + str(self.expiry_date[k]) +
                                          ' for ' + str(self.price_type))
 
             fig.show()
@@ -239,21 +269,16 @@ if __name__ == '__main__':
     reader.get_data_from_file()
 
     reader.count_forward_price(0.01, 1.)
-    for k in range(2):
 
-        print(max(reader.spot[k]), min(reader.spot[k]), np.mean(reader.spot[k]))
-        print(max(reader.forward_average[k]), min(reader.forward_average[k]), np.mean(reader.forward_average[k]))
-        for i in range(len( reader.spot[k])):
-            print('spot', i, reader.spot[k][i], reader.forward_average[k][i], reader.spot[k][i]-reader.forward_average[k][i])
-    reader.plot_forward()
+    # reader.plot_forward()
+    reader.plot_forward_rate()
     reader.count_vol()
-
     volatility = reader.v
-
     fig = []
     for k in range(len(volatility)):
         df = pd.DataFrame()
         df['Strike ' + str(k)] = reader.strikes[k]
+        print(np.isnan(reader.price['put'][k]).sum())
 
         tmp_corr = []
         for i in range(len(volatility[k])):
@@ -284,6 +309,10 @@ if __name__ == '__main__':
                 go.Scatter(x=reader.forward_average[k], y=volatility[k][index], mode="markers",  # reader.spot[k]
                            marker=dict(color=reader.time[k])), row=i + 1, col=1)
 
+            # fig[k].add_trace(
+            #     go.Scatter(x=reader.time[k], y=volatility[k][index], mode="lines",  # reader.spot[k]
+            #                marker=dict(color=reader.time[k])), row=i + 1, col=1)
+
             fig[k].update_xaxes(title_text="Forward price", row=i + 1, col=1)
             fig[k].update_yaxes(title_text="Volatility", row=i + 1, col=1)
 
@@ -294,5 +323,6 @@ if __name__ == '__main__':
 
     for f in fig:
         f.show()
+
 
 
