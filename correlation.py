@@ -184,8 +184,8 @@ class Reader:
                 for j in range(len(self.price[self.option_type][k][i])):
                     if not np.isnan(self.price[self.option_type][k][i][j]):
                         self.forward[k][i][j] = \
-                            (-self.price['call'][k][i][j] + self.price['put'][k][i][j]# + self.strikes[k][i])
-                                + self.spot[k][j])
+                            (-self.price['call'][k][i][j] + self.price['put'][k][i][j] + self.strikes[k][i])
+                                # + self.spot[k][j])
                                                                             # / (self.strikes[k][i]) - 1
 
                     else:
@@ -219,9 +219,9 @@ class Reader:
                            mode="markers+lines", marker=dict(size=10), name='spot'))
 
             fig.update_xaxes(title_text="Time to expiration")
-            fig.update_yaxes(title_text="Forward rate")
+            fig.update_yaxes(title_text="Forward")
 
-            fig.update_layout(title_text="Forward rate for expiration time " + str(self.expiry_date[k]) +
+            fig.update_layout(title_text="Forward for expiration time " + str(self.expiry_date[k]) +
                                          ' for ' + str(self.price_type))
 
             fig.show()
@@ -239,6 +239,12 @@ if __name__ == '__main__':
     reader.get_data_from_file()
 
     reader.count_forward_price(0.01, 1.)
+    for k in range(2):
+
+        print(max(reader.spot[k]), min(reader.spot[k]), np.mean(reader.spot[k]))
+        print(max(reader.forward_average[k]), min(reader.forward_average[k]), np.mean(reader.forward_average[k]))
+        for i in range(len( reader.spot[k])):
+            print('spot', i, reader.spot[k][i], reader.forward_average[k][i], reader.spot[k][i]-reader.forward_average[k][i])
     reader.plot_forward()
     reader.count_vol()
 
