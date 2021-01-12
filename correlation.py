@@ -6,21 +6,13 @@ import os
 from scipy import stats
 import argparse
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import copy
-import matplotlib.pyplot as plt
-warnings.filterwarnings("ignore")
-pd.options.mode.chained_assignment = None
-from scipy.interpolate import CubicSpline
-from scipy import interpolate
-from scipy.signal import savgol_filter
 import pwlf
 from sklearn.linear_model import LinearRegression
-from sklearn.tree import DecisionTreeRegressor
 from GPyOpt.methods import BayesianOptimization
-from sklearn.preprocessing import KBinsDiscretizer
-from mlinsights.mlmodel import PiecewiseRegressor
-from sklearn.model_selection import train_test_split
+warnings.filterwarnings("ignore")
+pd.options.mode.chained_assignment = None
+
 
 class Price:
     def __init__(self, type):
@@ -36,7 +28,7 @@ class Volatility:
 
     def sigma_from_price(self, C, strike, expiry, r, error, S, is_forward=True):
         if is_forward:
-            S = exp(-r*expiry)*S
+            S = exp(-r * expiry) * S
         sigma = 1.
         sigma_old = 1.
         dv = error + 1.
@@ -187,7 +179,8 @@ class Reader:
                 for j in range(len(self.price[self.option_type][k][i])):
                     if not np.isnan(self.price[self.option_type][k][i][j]):
                         v[k][i][j] = vol.sigma_from_price(self.price[self.option_type][k][i][j], self.strikes[k][i],
-                                                          self.time[k][j], 0., 0.001, spot_forward[k][j], is_forward=is_forward)
+                                                          self.time[k][j], 0., 0.001, spot_forward[k][j],
+                                                          is_forward=is_forward)
                     else:
                         v[k][i][j] = np.nan
 
@@ -204,7 +197,7 @@ class Reader:
                     if not np.isnan(self.price[self.option_type][k][i][j]):
                         self.forward[k][i][j] = \
                             (self.price['call'][k][i][j] - self.price['put'][k][i][j] + self.strikes[k][i])
-                             #   + self.spot[k][j])
+                        #   + self.spot[k][j])
                     else:
                         self.forward[k][i][j] = np.nan
 
@@ -224,12 +217,14 @@ class Reader:
                         delta_sum += delta[k][i][j]
 
                 tmp = []
-                d = 0
                 for i in range(len(self.price[self.option_type][k])):
-                    if not np.isnan(delta[k][i][j]):
-                        tmp.append(self.forward[k][i][j] * delta[k][i][j]/delta_sum)
-                        d += delta[k][i][j]/delta_sum
-                mean.append(np.nansum(tmp))
+                    if not np.isnan(delta[k][i][j]) and not np.isnan(self.forward[k][i][j]):
+                        tmp.append(self.forward[k][i][j] * delta[k][i][j] / delta_sum)
+
+                if (np.nansum(tmp)) != 0:
+                    mean.append(np.nansum(tmp))
+                else:
+                    mean.append(np.nan)
 
             self.forward_average.append(mean)
 
@@ -270,107 +265,70 @@ class Reader:
 
             fig.show()
 
+    def lin_reg(self, X, y):
+        reg = LinearRegression().fit(X.reshape(len(X), -1), y)
+        pred = reg.predict(X.reshape(len(X), -1))
+        return pred
 
     def plot_forward_rate(self):
         for k in range(len(self.price[self.option_type])):
             fig = go.Figure()
-            av = []
-            for i in range(len(self.price[self.option_type][k])):
-                fig.add_trace(
-                    go.Scatter(x=self.time[k], y=np.array(self.forward[k][i]) / np.array(self.spot[k]) - 1, #  (self.spot[k])
-                               mode="markers", marker=dict(size=4), name=self.strikes[k][i]))
 
-            x = self.time[k]
-            y = np.array(self.forward_average[k])/ np.array(self.spot[k]) - 1
+            x = np.array(self.time[k])
+            y = np.array(self.forward_average[k]) / np.array(self.spot[k]) - 1
+            indices = [not np.isnan(element) for element in self.forward_average[k]]
+            x = x[indices]
+            y = y[indices]
 
-            # f = interpolate.interp1d(x, y)
-            # x_new = np.linspace(min(x), max(x), 5)
-            # y_new = f(x_new)
+            x = np.array(x)
 
-            # my_pwlf = pwlf.PiecewiseLinFit(x, y)
-            # breaks = my_pwlf.fit(5)
-            # print(breaks)
+            my_pwlf = pwlf.PiecewiseLinFit(x, y)
 
-            # y_pwlf = my_pwlf.predict(x)
+            def my_obj(x):
+                l = y.mean() * 0.001
+                f = np.zeros(x.shape[0])
+                for i, j in enumerate(x):
+                    my_pwlf.fit(j[0])
+                    f[i] = my_pwlf.ssr + (l * j[0])
+                return f
 
-            # w = savgol_filter(y, len(x) if len(x)%2 != 0 else len(x)+1, 7)
-            #
-            # # coefficients = np.polyfit(x, w, 7)  # where 1 is the degree of freedom
-            # # p = np.poly1d(coefficients)
-            #
-            # x = np.array(x)
-            #
-            # # w_p = np.array(w)
-            # # dys = np.gradient(y, x)
-            # #
-            # # rgr = DecisionTreeRegressor(max_leaf_nodes=10)
-            # # rgr.fit(x.reshape(-1, 1), dys.reshape(-1, 1))
-            # # dys_dt = rgr.predict(x.reshape(-1, 1)).flatten()
-            # #
-            # # # fig1, (ax0, ax1) = plt.subplots(1, 2)
-            # #
-            # # ys_sl = np.ones(len(x)) * np.nan
-            # # for y_ in np.unique(dys_dt):
-            # #     msk = dys_dt == y_
-            # #     lin_reg = LinearRegression()
-            # #     lin_reg.fit(x[msk].reshape(-1, 1), w_p[msk].reshape(-1, 1))
-            # #     ys_sl[msk] = lin_reg.predict(x[msk].reshape(-1, 1)).flatten()
-            # #     # plt.plot([x[msk][0], x[msk][-1]],
-            # #     #          [ys_sl[msk][0], ys_sl[msk][-1]],
-            # #     #          color='r', zorder=1)
-            # # # plt.show()
-            #
-            # my_pwlf = pwlf.PiecewiseLinFit(x, y)
-            #
-            # # define your objective function
-            #
-            # def my_obj(x):
-            #     # define some penalty parameter l
-            #     # you'll have to arbitrarily pick this
-            #     # it depends upon the noise in your data,
-            #     # and the value of your sum of square of residuals
-            #     l = w.mean() * 0.001
-            #     f = np.zeros(x.shape[0])
-            #     for i, j in enumerate(x):
-            #         my_pwlf.fit(j[0])
-            #         f[i] = my_pwlf.ssr + (l * j[0])
-            #     return f
-            #
-            # # define the lower and upper bound for the number of line segments
-            # bounds = [{'name': 'var_1', 'type': 'discrete',
-            #            'domain': np.arange(2, 40)}]
-            #
-            # np.random.seed(12121)
-            #
-            # myBopt = BayesianOptimization(my_obj, domain=bounds, model_type='GP',
-            #                               initial_design_numdata=10,
-            #                               initial_design_type='latin',
-            #                               exact_feval=True, verbosity=True,
-            #                               verbosity_model=False)
-            # max_iter = 30
-            #
-            # myBopt.run_optimization(max_iter=max_iter, verbosity=True)
-            #
-            # # perform the fit for the optimum
-            # my_pwlf.fit(myBopt.x_opt)
-            # # predict for the determined points
-            # xHat = np.linspace(min(x), max(x), num=len(x))
-            # yHat = my_pwlf.predict(xHat)
+            # define the lower and upper bound for the number of line segments
+            max_count = int(self.time[k][0]*365)
+            print(max_count)
+            bounds = [{'name': 'var_1', 'type': 'discrete',
+                       'domain': np.arange(2, max_count)}]
 
+            np.random.seed(12121)
 
+            myBopt = BayesianOptimization(my_obj, domain=bounds, model_type='GP',
+                                          initial_design_numdata=int(len(x)/30),
+                                          initial_design_type='random',
+                                          exact_feval=True, verbosity=True,
+                                          verbosity_model=False)
+            max_iter = 30
 
+            myBopt.run_optimization(max_iter=max_iter, verbosity=True)
 
+            my_pwlf.fit(myBopt.x_opt)
+            xHat = np.linspace(min(x), max(x), num=len(x))
 
+            print('len xHat', len(xHat))
 
+            xHat = xHat[::-1]
+            yHat = [my_pwlf.predict(xHat[0])[0]]
+            for i in range(1, len(xHat)):
+                y_ = my_pwlf.predict(xHat[i])[0]
 
+                if y_ <= yHat[i - 1]:
+                    yHat.append(y_)
+                else:
+                    yHat.append(yHat[i - 1])
 
-
-
-            # av.append(self.forward_average[k]/ self.spot[k] - 1)
-            # print(av[i], self.forward_average[k][i], self.spot[k][i])
-            # print(len(self.spot[k]))
+            xHat = xHat[::-1]
+            yHat = yHat[::-1]
             fig.add_trace(
-                go.Scatter(x=self.time[k], y=np.array(self.forward_average[k])/ np.array(self.spot[k]) - 1,  # (self.spot[k])
+                go.Scatter(x=self.time[k], y=np.array(self.forward_average[k]) / np.array(self.spot[k]) - 1,
+                           # (self.spot[k])
                            mode="lines+markers", marker=dict(size=4), name='average'))
             # fig.add_trace(
             #     go.Scatter(x=x_new, y=y_new,  # (self.spot[k])
@@ -387,9 +345,12 @@ class Reader:
             # fig.add_trace(
             #     go.Scatter(x=x, y=ys_sl,  # (self.spot[k])
             #                mode="lines+markers", marker=dict(size=4), name='Tree'))
+            fig.add_trace(
+                go.Scatter(x=xHat, y=yHat,
+                           mode="lines+markers", marker=dict(size=4), name='Optimization'))
             # fig.add_trace(
-            #     go.Scatter(x=xHat, y=yHat,  # (self.spot[k])
-            #                mode="lines+markers", marker=dict(size=4), name='Optimization'))
+            #     go.Scatter(x=xHat, y=yHat1,
+            #                mode="lines+markers", marker=dict(size=4), name='Before'))
 
             fig.update_xaxes(title_text="Time to expiration")
             fig.update_yaxes(title_text="Forward rate")
@@ -473,6 +434,3 @@ if __name__ == '__main__':
     #
     # for f in fig:
     #     f.show()
-
-
-

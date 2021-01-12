@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/Correlation.iml" filepath="$PROJECT_DIR$/.idea/Correlation.iml" />
+      <module fileurl="file://$PROJECT_DIR$/../DATA/volatility_surface_by_one_file_forward/.idea/volatility_surface_by_one_file_forward.iml" filepath="$PROJECT_DIR$/../DATA/volatility_surface_by_one_file_forward/.idea/volatility_surface_by_one_file_forward.iml" />
     </modules>
   </component>
 </project>
